@@ -25,6 +25,7 @@ const app = express();
 // Connection handler
 server.on("connection", (socket) => {
   const clientIp = socket.remoteAddress.replace(/^.*:/, "");
+  console.log(`[Connection] from ${clientIp}`);
 
   // Error handler for this socket
   const handleError = (err) => {
@@ -38,7 +39,7 @@ server.on("connection", (socket) => {
 
   // Handle DO health checks
   if (DO_NETWORKS.some((net) => ip.cidrSubnet(net).contains(clientIp))) {
-    // console.log(`[Health Check] from ${clientIp}`);
+    console.log(`[Health Check] from ${clientIp}`);
     socket.end("HEALTHY\n", "utf8", () => {
       socket.destroy();
     });
@@ -47,12 +48,12 @@ server.on("connection", (socket) => {
 
   // Validate other connections
   if (!ALLOWED_IPS.includes(clientIp)) {
-    // console.log(`[Security] Blocked connection from ${clientIp}`);
+    console.log(`[Security] Blocked connection from ${clientIp}`);
     socket.destroy();
     return;
   }
 
-  // console.log(`[Connection] Established with ${clientIp}`);
+  console.log(`[Connection] Established with ${clientIp}`);
 
   let buffer = "";
 
@@ -68,7 +69,7 @@ server.on("connection", (socket) => {
         if (endIdx === -1) break;
 
         const message = buffer.substring(startIdx + 1, endIdx);
-        // console.log(`[Data] ${message}`);
+        console.log(`[Data] ${message}`);
         buffer = buffer.substring(endIdx + 1);
         function parseVehicleMessage(message) {
           // Extract the data part after the IP address
@@ -96,24 +97,24 @@ server.on("connection", (socket) => {
 
         if (message.trim()) {
           const timestamp = new Date().toISOString();
-          // console.log(`[Data] ${timestamp} from ${clientIp}: ${message}`);
+          console.log(`[Data] ${timestamp} from ${clientIp}: ${message}`);
 
           // Function to process multiple messages and prepare for Supabase insertion
           function prepareSupabaseInserts(messages) {
             return messages.map((message) => parseVehicleMessage(message));
           }
           const supabaseData = prepareSupabaseInserts([message]);
-          // console.log("Supabase Data:", supabaseData[0]);
+          console.log("Supabase Data:", supabaseData[0]);
 
           try {
             const { data, error } = await supabase
               .from("vehicle_tracking")
               .insert(supabaseData);
-            // console.log(
-            //   "Data inserted into Supabase successfully:",
-            //   data,
-            //   error
-            // );
+            console.log(
+              "Data inserted into Supabase successfully:",
+              data,
+              error
+            );
           } catch (error) {
             console.error("Supabase insert error:", error);
           }
