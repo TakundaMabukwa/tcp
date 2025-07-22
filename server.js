@@ -4,11 +4,13 @@ const ip = require('ip');
 require('dotenv').config();
 
 // Configuration
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 9000;
 const LOG_FILE = 'ituran_data.log';
 const ALLOWED_IPS = [
-  process.env.ITURAN_IP1 || '81.218.55.66',
-  process.env.ITURAN_IP2 || '212.150.50.68'
+  process.env.ALLOWED_IP1 || '81.218.55.66',
+  process.env.ALLOWED_IP2 || '212.150.50.68',
+  '127.0.0.1', // Localhost for testing,
+  '143.198.204.127'
 ];
 const DO_NETWORKS = [
   '10.244.0.0/16',
