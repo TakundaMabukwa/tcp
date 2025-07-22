@@ -18,6 +18,7 @@
   "homepage": "",
   "dependencies": {
     "@faker-js/faker": "^9.9.0",
-    "dotenv": "^17.2.0"
+    "dotenv": "^17.2.0",
+    "ip": "^2.0.1"
   }
 }
