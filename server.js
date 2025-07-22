@@ -7,56 +7,57 @@ require('dotenv').config();
 const PORT = process.env.PORT || 8000;
 const LOG_FILE = 'ituran_data.log';
 const ALLOWED_IPS = [
-  process.env.ALLOWED_IP1,
-  process.env.ALLOWED_IP2 
+  process.env.ITURAN_IP1 || '81.218.55.66',
+  process.env.ITURAN_IP2 || '212.150.50.68'
 ];
 const DO_NETWORKS = [
-  '10.244.0.0/16',  // DO App Platform internal
-  '10.135.0.0/16',  // DO Load Balancers
-  '10.128.0.0/16'   // DO general internal
+  '10.244.0.0/16',
+  '10.135.0.0/16',
+  '10.128.0.0/16'
 ];
 
 // Create server
 const server = net.createServer();
 
-// IP validation
-function isAllowed(clientIp) {
-  // Check DigitalOcean internal networks first
-  if (DO_NETWORKS.some(net => ip.cidrSubnet(net).contains(clientIp))) {
-    return true;
-  }
-  
-  // Check explicitly allowed IPs
-  return ALLOWED_IPS.includes(clientIp);
-}
-
-// Handle connections
+// Connection handler
 server.on('connection', (socket) => {
   const clientIp = socket.remoteAddress.replace(/^.*:/, '');
   
-  // Handle DigitalOcean health checks
+  // Error handler for this socket
+  const handleError = (err) => {
+    if (err.code !== 'ECONNRESET') {
+      console.error(`[Error] ${clientIp}:`, err.message);
+    }
+    socket.destroy();
+  };
+
+  socket.once('error', handleError);
+
+  // Handle DO health checks
   if (DO_NETWORKS.some(net => ip.cidrSubnet(net).contains(clientIp))) {
     console.log(`[Health Check] from ${clientIp}`);
-    socket.write('HEALTHY');
-    return socket.end();
+    socket.end('HEALTHY\n', 'utf8', () => {
+      socket.destroy();
+    });
+    return;
   }
 
   // Validate other connections
-  if (!isAllowed(clientIp)) {
+  if (!ALLOWED_IPS.includes(clientIp)) {
     console.log(`[Security] Blocked connection from ${clientIp}`);
-    return socket.destroy();
+    socket.destroy();
+    return;
   }
 
   console.log(`[Connection] Established with ${clientIp}`);
   
   let buffer = '';
   
-  // Data handling for Ituran messages
+  // Data handler for Ituran
   socket.on('data', (data) => {
     try {
       buffer += data.toString('utf8');
       
-      // Process complete messages (between ^ delimiters)
       while (buffer.includes('^')) {
         const startIdx = buffer.indexOf('^');
         const endIdx = buffer.indexOf('^', startIdx + 1);
@@ -80,13 +81,14 @@ server.on('connection', (socket) => {
     }
   });
 
-  socket.on('error', (err) => {
-    console.error(`[Error] ${clientIp}:`, err.message);
-  });
-
   socket.on('end', () => {
     console.log(`[Disconnected] ${clientIp}`);
   });
+});
+
+// Server error handling
+server.on('error', (err) => {
+  console.error('Server error:', err);
 });
 
 // Start server
@@ -94,11 +96,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Allowed Ituran IPs:', ALLOWED_IPS);
   console.log('Allowed DO Networks:', DO_NETWORKS);
-});
-
-// Handle server errors
-server.on('error', (err) => {
-  console.error('Server error:', err);
 });
 
 // Graceful shutdown
