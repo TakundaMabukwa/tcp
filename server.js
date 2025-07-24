@@ -1,138 +1,195 @@
-import net from "net";
-import fs from "fs";
-import ip from "ip";
-import express from "express";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-import chalk from "chalk";
-
-// ES Modules equivalent for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const net = require("net");
+const fs = require("fs");
+const ip = require("ip");
+require("dotenv").config();
+const express = require("express");
 
 // Configuration
 const PORT = process.env.PORT || 9000;
-const HTTP_PORT = 3000;
-const LOG_FILE = "data.log";
+const LOG_FILE = "logs.txt";
 const ALLOWED_IPS = [
   process.env.ALLOWED_IP1 || "81.218.55.66",
   process.env.ALLOWED_IP2 || "212.150.50.68",
+  process.env.ALLOWED_IP3 || "10.2.1.148",
   "127.0.0.1",
+  "143.198.204.127",
+  "192.168.1.165",
   "64.227.138.235",
-  "10.2.1.148"
+  "41.157.41.148",
+  "10.2.1.0/24",
+  "198.54.173.198",
+];
+const DO_NETWORKS = [
+  "10.244.0.0/16",
+  "10.135.0.0/16",
+  "10.128.0.0/16",
+  "10.2.1.0/24",
 ];
 
-// Logging functions with chalk colors
-const logData = (message, data) => {
-  const timestamp = new Date().toISOString();
-  const logEntry = `[${timestamp}] ${message} ${JSON.stringify(data)}\n`;
-  fs.appendFileSync(LOG_FILE, logEntry);
-  console.log(chalk.green(logEntry.trim()));
-};
+// Create servers
+const server = net.createServer();
+const app = express();
 
-const logError = (error) => {
+// Enhanced console logger
+function logToConsole(type, message, data = null) {
   const timestamp = new Date().toISOString();
-  const logEntry = `[${timestamp}] ERROR: ${error}\n`;
-  fs.appendFileSync(LOG_FILE, logEntry);
-  console.error(chalk.red(logEntry.trim()));
-};
+  const logType = type.toUpperCase();
+  console.log(`[${timestamp}] ${logType}: ${message}`);
+  if (data) {
+    console.log("Data:", JSON.stringify(data, null, 2));
+  }
+}
 
 // Message parser
-const parseMessage = (raw) => {
-  const parts = raw.split("|").map((p) => p.trim());
+function parseVehicleMessage(rawMessage) {
+  const parts = rawMessage.split("|").map((part) => part.trim());
+
   return {
-    plate: parts[0],
-    speed: parseFloat(parts[1]) || 0,
-    latitude: parseFloat(parts[2]),
-    longitude: parseFloat(parts[3]),
-    timestamp: new Date().toISOString(),
+    // Core vehicle data
+    plate: parts[0] || null,
+    speed: parts[1] ? parseFloat(parts[1]) : null,
+    latitude: parts[2] ? parseFloat(parts[2]) : null,
+    longitude: parts[3] ? parseFloat(parts[3]) : null,
+    loc_time: parts[4] || null,
+    mileage: parts[5] ? parseFloat(parts[5]) : null,
+    quality: parts[28] || null,
+    pocsagstr: parts[30] || null,
+    head: parts[31] || null,
+
+    // Driver information
+    driver_name: parts[6] || null,
+    driver_authentication: parts[7] || null,
+    driver_code: parts[8] || null,
+
+    // Vehicle status
+    statuses: parts[9] || null,
+    engine_state: parts[10] || null,
+    temperature: parts[11] || null,
+
+    // Location data
+    address: parts[12] || null,
+    geozone: parts[13] || null,
+    geo_area_circle: parts[14] || null,
+    geo_area_polygon: parts[15] || null,
+    geo_area_rout: parts[16] || null,
+
+    // System information
+    platform_name: parts[17] || null,
+    platform_id: parts[18] || null,
+    user_id: parts[19] || null,
+    user_name: parts[20] || null,
+    customer_id: parts[21] || null,
+    uaid: parts[22] || null,
+
+    // Additional fields
+    rules: parts[23] || null,
+    lim_msg: parts[24] || null,
+    ecm_code: parts[25] || null,
+    ecm_category: parts[26] || null,
+    ecm_name: parts[27] || null,
+    name_event: parts[29] || null,
+    utc_now_time: parts[32] || null,
+
+    // Timestamps
+    received_at: new Date().toISOString(),
   };
-};
+}
 
-// TCP Server
-const createTCPServer = () => {
-  const server = net.createServer((socket) => {
-    const clientIp = socket.remoteAddress.replace(/^.*:/, "");
+// Connection handler
+server.on("connection", (socket) => {
+  const clientIp = socket.remoteAddress.replace(/^.*:/, "");
+  logToConsole("connection", `New connection from ${clientIp}`);
 
-    if (!ALLOWED_IPS.includes(clientIp)) {
-      socket.destroy();
-      return;
+  const handleError = (err) => {
+    if (err.code !== "ECONNRESET") {
+      logToConsole(
+        "error",
+        `Connection error from ${clientIp}: ${err.message}`
+      );
     }
+    socket.destroy();
+  };
 
-    let buffer = "";
-    socket.on("data", (data) => {
-      buffer += data.toString();
+  socket.once("error", handleError);
+
+  // Handle DO health checks
+  if (DO_NETWORKS.some((net) => ip.cidrSubnet(net).contains(clientIp))) {
+    logToConsole("info", `Health check from ${clientIp}`);
+    socket.end("HEALTHY\n", "utf8", () => socket.destroy());
+    return;
+  }
+
+  if (!ALLOWED_IPS.includes(clientIp)) {
+    logToConsole("warning", `Blocked connection from ${clientIp}`);
+    socket.destroy();
+    return;
+  }
+
+  logToConsole("connection", `Established connection with ${clientIp}`);
+
+  let buffer = "";
+
+  socket.on("data", (data) => {
+    try {
+      buffer += data.toString("utf8");
 
       while (buffer.includes("^")) {
-        const start = buffer.indexOf("^");
-        const end = buffer.indexOf("^", start + 1);
+        const startIdx = buffer.indexOf("^");
+        const endIdx = buffer.indexOf("^", startIdx + 1);
 
-        if (end === -1) break;
+        if (endIdx === -1) break;
 
-        const message = buffer.substring(start + 1, end);
-        buffer = buffer.substring(end + 1);
+        const message = buffer.substring(startIdx + 1, endIdx);
+        buffer = buffer.substring(endIdx + 1);
 
-        try {
-          const parsed = parseMessage(message);
-          logData(`[${clientIp}] Received:`, parsed);
-        } catch (err) {
-          logError(`Failed to parse: ${message} - ${err}`);
+        if (message.trim()) {
+          try {
+            const vehicleData = parseVehicleMessage(message);
+            logToConsole("data", `Received data from ${clientIp}`, vehicleData);
+
+            // Log to file
+            fs.appendFileSync(
+              LOG_FILE,
+              `[${new Date().toISOString()}] ${clientIp} - ${message}\n`
+            );
+          } catch (err) {
+            logToConsole("error", `Data processing error: ${err.message}`);
+          }
         }
       }
-    });
-
-    socket.on("error", (err) => {
-      logError(`Client error: ${err}`);
-    });
-
-    socket.on("end", () => {
-      logData(`Client disconnected:`, { ip: clientIp });
-    });
-  });
-
-  server.on("error", (err) => {
-    logError(`Server error: ${err}`);
-  });
-
-  return server;
-};
-
-// HTTP Server
-const createHTTPServer = () => {
-  const app = express();
-
-  app.get("/logs", (req, res) => {
-    try {
-      const logs = fs.readFileSync(LOG_FILE, "utf8");
-      res.type("text/plain").send(logs);
     } catch (err) {
-      res.status(500).send("Error reading logs");
+      logToConsole("error", `Socket data error: ${err.message}`);
     }
   });
 
-  return app;
-};
+  socket.on("end", () => {
+    logToConsole("connection", `Client disconnected: ${clientIp}`);
+  });
+});
+
+// HTTP API
+app.get("/", (req, res) => {
+  try {
+    const logs = fs.readFileSync(LOG_FILE, "utf8");
+    res.type("text/plain").send(logs);
+  } catch (err) {
+    logToConsole("error", `API error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // Start servers
-const startServers = () => {
-  const tcpServer = createTCPServer();
-  const httpServer = createHTTPServer();
+server.listen(PORT, "0.0.0.0", () => {
+  logToConsole("info", `TCP server started on port ${PORT}`);
+  logToConsole("info", `Allowed IPs: ${ALLOWED_IPS.join(", ")}`);
+});
 
-  tcpServer.listen(PORT, () => {
-    console.log(chalk.blue(`TCP server listening on port ${PORT}`));
-  });
+app.listen(3000, () => {
+  logToConsole("info", "HTTP server started on port 3000");
+});
 
-  httpServer.listen(HTTP_PORT, () => {
-    console.log(chalk.blue(`HTTP server listening on port ${HTTP_PORT}`));
-  });
-
-  process.on("SIGINT", () => {
-    tcpServer.close(() => {
-      console.log(chalk.yellow("TCP server stopped"));
-      process.exit(0);
-    });
-  });
-};
-
-// Initialize
-startServers();
+// Graceful shutdown
+process.on("SIGINT", () => {
+  logToConsole("info", "\nShutting down servers...");
+  server.close(() => process.exit(0));
+});
