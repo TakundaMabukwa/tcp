@@ -6,7 +6,7 @@ const express = require("express");
 
 // Configuration
 const PORT = process.env.PORT || 9000;
-const LOG_FILE = "logs.txt";
+const LOG_FILE = "raw_data.log"; // Changed log file name
 const ALLOWED_IPS = [
   process.env.ALLOWED_IP1 || "81.218.55.66",
   process.env.ALLOWED_IP2 || "212.150.50.68",
@@ -30,69 +30,10 @@ const DO_NETWORKS = [
 const server = net.createServer();
 const app = express();
 
-// Enhanced console logger
-function logToConsole(type, message, data = null) {
+// Simplified logger (no parsing)
+function logToConsole(type, message) {
   const timestamp = new Date().toISOString();
-  const logType = type.toUpperCase();
-  console.log(`[${timestamp}] ${logType}: ${message}`);
-  if (data) {
-    console.log("Data:", JSON.stringify(data, null, 2));
-  }
-}
-
-// Message parser
-function parseVehicleMessage(rawMessage) {
-  const parts = rawMessage.split("|").map((part) => part.trim());
-
-  return {
-    // Core vehicle data
-    plate: parts[0] || null,
-    speed: parts[1] ? parseFloat(parts[1]) : null,
-    latitude: parts[2] ? parseFloat(parts[2]) : null,
-    longitude: parts[3] ? parseFloat(parts[3]) : null,
-    loc_time: parts[4] || null,
-    mileage: parts[5] ? parseFloat(parts[5]) : null,
-    quality: parts[28] || null,
-    pocsagstr: parts[30] || null,
-    head: parts[31] || null,
-
-    // Driver information
-    driver_name: parts[6] || null,
-    driver_authentication: parts[7] || null,
-    driver_code: parts[8] || null,
-
-    // Vehicle status
-    statuses: parts[9] || null,
-    engine_state: parts[10] || null,
-    temperature: parts[11] || null,
-
-    // Location data
-    address: parts[12] || null,
-    geozone: parts[13] || null,
-    geo_area_circle: parts[14] || null,
-    geo_area_polygon: parts[15] || null,
-    geo_area_rout: parts[16] || null,
-
-    // System information
-    platform_name: parts[17] || null,
-    platform_id: parts[18] || null,
-    user_id: parts[19] || null,
-    user_name: parts[20] || null,
-    customer_id: parts[21] || null,
-    uaid: parts[22] || null,
-
-    // Additional fields
-    rules: parts[23] || null,
-    lim_msg: parts[24] || null,
-    ecm_code: parts[25] || null,
-    ecm_category: parts[26] || null,
-    ecm_name: parts[27] || null,
-    name_event: parts[29] || null,
-    utc_now_time: parts[32] || null,
-
-    // Timestamps
-    received_at: new Date().toISOString(),
-  };
+  console.log(`[${timestamp}] ${type.toUpperCase()}: ${message}`);
 }
 
 // Connection handler
@@ -133,6 +74,20 @@ server.on("connection", (socket) => {
     try {
       buffer += data.toString("utf8");
 
+      // Log ALL raw data as-is
+      fs.appendFileSync(
+        LOG_FILE,
+        `[${new Date().toISOString()}] [${clientIp}] RAW DATA: ${data.toString(
+          "utf8"
+        )}\n`
+      );
+
+      logToConsole(
+        "data",
+        `Raw data from ${clientIp}: ${data.toString("utf8")}`
+      );
+
+      // Optional: Keep message boundary detection if needed
       while (buffer.includes("^")) {
         const startIdx = buffer.indexOf("^");
         const endIdx = buffer.indexOf("^", startIdx + 1);
@@ -143,22 +98,14 @@ server.on("connection", (socket) => {
         buffer = buffer.substring(endIdx + 1);
 
         if (message.trim()) {
-          try {
-            const vehicleData = parseVehicleMessage(message);
-            logToConsole("data", `Received data from ${clientIp}`, vehicleData);
-
-            // Log to file
-            fs.appendFileSync(
-              LOG_FILE,
-              `[${new Date().toISOString()}] ${clientIp} - ${message}\n`
-            );
-          } catch (err) {
-            logToConsole("error", `Data processing error: ${err.message}`);
-          }
+          fs.appendFileSync(
+            LOG_FILE,
+            `[${new Date().toISOString()}] [${clientIp}] COMPLETE MESSAGE: ${message}\n`
+          );
         }
       }
     } catch (err) {
-      logToConsole("error", `Socket data error: ${err.message}`);
+      logToConsole("error", `Data logging error: ${err.message}`);
     }
   });
 
@@ -167,7 +114,7 @@ server.on("connection", (socket) => {
   });
 });
 
-// HTTP API
+// HTTP API to view raw logs
 app.get("/", (req, res) => {
   try {
     const logs = fs.readFileSync(LOG_FILE, "utf8");
