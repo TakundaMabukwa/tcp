@@ -3,7 +3,7 @@ const fs = require("fs");
 const ip = require("ip");
 require("dotenv").config();
 const express = require("express");
-const supabase = require("./supabase");
+const chalk = require("chalk");
 
 // Configuration
 const PORT = process.env.PORT || 9000;
@@ -18,15 +18,45 @@ const ALLOWED_IPS = [
   "64.227.138.235",
   "41.157.41.148",
   "10.2.1.0/24",
-  "198.54.173.198"
+  "198.54.173.198",
 ];
-const DO_NETWORKS = ["10.244.0.0/16", "10.135.0.0/16", "10.128.0.0/16", "10.2.1.0/24"];
+const DO_NETWORKS = [
+  "10.244.0.0/16",
+  "10.135.0.0/16",
+  "10.128.0.0/16",
+  "10.2.1.0/24",
+];
 
 // Create servers
 const server = net.createServer();
 const app = express();
 
-// Enhanced message parser with all fields
+// Enhanced console logger
+function logToConsole(type, message, data = null) {
+  const timestamp = new Date().toISOString();
+  const colors = {
+    connection: chalk.blue,
+    data: chalk.green,
+    error: chalk.red,
+    warning: chalk.yellow,
+    info: chalk.cyan,
+    disconnect: chalk.magenta,
+    debug: chalk.gray,
+  };
+
+  const logType = colors[type] || chalk.white;
+  console.log(
+    chalk.gray(`[${timestamp}]`),
+    logType.bold(`${type.toUpperCase()}:`),
+    chalk.white(message)
+  );
+
+  if (data) {
+    console.log(chalk.gray("   ↳ Data:"), JSON.stringify(data, null, 2));
+  }
+}
+
+// Message parser
 function parseVehicleMessage(rawMessage) {
   const parts = rawMessage.split("|").map((part) => part.trim());
 
@@ -38,9 +68,6 @@ function parseVehicleMessage(rawMessage) {
     longitude: parts[3] ? parseFloat(parts[3]) : null,
     loc_time: parts[4] || null,
     mileage: parts[5] ? parseFloat(parts[5]) : null,
-    quality: parts[28] || null,
-    pocsagstr: parts[30] || null,
-    head: parts[31] || null,
 
     // Driver information
     driver_name: parts[6] || null,
@@ -73,47 +100,58 @@ function parseVehicleMessage(rawMessage) {
     ecm_code: parts[25] || null,
     ecm_category: parts[26] || null,
     ecm_name: parts[27] || null,
+    quality: parts[28] || null,
     name_event: parts[29] || null,
+    pocsagstr: parts[30] || null,
+    head: parts[31] || null,
     utc_now_time: parts[32] || null,
 
     // Timestamps
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    received_at: new Date().toISOString(),
   };
 }
+
+// Track last message per client
+const clientStates = new Map();
 
 // Connection handler
 server.on("connection", (socket) => {
   const clientIp = socket.remoteAddress.replace(/^.*:/, "");
-  console.log(`[Connection] from ${clientIp}`);
+  logToConsole("connection", `New connection from ${clientIp}`);
+
+  // Initialize client state
+  clientStates.set(clientIp, {
+    lastMessage: null,
+    connectionTime: new Date(),
+  });
 
   const handleError = (err) => {
     if (err.code !== "ECONNRESET") {
-      console.error(`[Error] ${clientIp}:`, err.message);
+      logToConsole("error", `Error from ${clientIp}: ${err.message}`);
     }
     socket.destroy();
   };
 
   socket.once("error", handleError);
 
-  // Handle DO health checks
+  // Health checks
   if (DO_NETWORKS.some((net) => ip.cidrSubnet(net).contains(clientIp))) {
-    console.log(`[Health Check] from ${clientIp}`);
+    logToConsole("info", `Health check from ${clientIp}`);
     socket.end("HEALTHY\n", "utf8", () => socket.destroy());
     return;
   }
 
   if (!ALLOWED_IPS.includes(clientIp)) {
-    console.log(`[Security] Blocked connection from ${clientIp}`);
+    logToConsole("warning", `Blocked connection from ${clientIp}`);
     socket.destroy();
     return;
   }
 
-  console.log(`[Connection] Established with ${clientIp}`);
+  logToConsole("connection", `Established connection with ${clientIp}`);
 
   let buffer = "";
 
-  socket.on("data", async (data) => {
+  socket.on("data", (data) => {
     try {
       buffer += data.toString("utf8");
 
@@ -127,81 +165,103 @@ server.on("connection", (socket) => {
         buffer = buffer.substring(endIdx + 1);
 
         if (message.trim()) {
-          const timestamp = new Date().toISOString();
-          console.log(`[Data] ${timestamp} from ${clientIp}: ${message}`);
-
           try {
             const vehicleData = parseVehicleMessage(message);
-            console.log("Parsed data:", vehicleData);
+            const clientState = clientStates.get(clientIp);
 
-            // Simple insert operation
-            const { data: supabaseResponse, error } = await supabase
-              .from("vehicle_tracking")
-              .insert([vehicleData]);
+            // Log raw message
+            logToConsole("debug", `Raw message from ${clientIp}`, message);
 
-            if (error) {
-              console.error("Supabase insert error:", error);
-              fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Insert error: ${error.message}\n`);
+            // Log full parsed data on first message
+            if (!clientState.lastMessage) {
+              logToConsole(
+                "data",
+                `Initial data from ${clientIp}`,
+                vehicleData
+              );
             } else {
-              console.log("Data inserted successfully:", supabaseResponse);
-              fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Data inserted for plate: ${vehicleData.plate}\n`);
+              // Find changes from last message
+              const changes = {};
+              Object.keys(vehicleData).forEach((key) => {
+                if (
+                  JSON.stringify(vehicleData[key]) !==
+                  JSON.stringify(clientState.lastMessage[key])
+                ) {
+                  changes[key] = {
+                    old: clientState.lastMessage[key],
+                    new: vehicleData[key],
+                  };
+                }
+              });
+
+              if (Object.keys(changes).length > 0) {
+                logToConsole("data", `Data changes from ${clientIp}`, changes);
+              } else {
+                logToConsole("debug", `No data changes from ${clientIp}`);
+              }
             }
+
+            // Update last message
+            clientState.lastMessage = vehicleData;
+            clientStates.set(clientIp, clientState);
+
+            // Log to file
+            fs.appendFileSync(
+              LOG_FILE,
+              `[${new Date().toISOString()}] ${clientIp} - ${message}\n`
+            );
           } catch (err) {
-            console.error("Data processing error:", err);
-            fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Processing error: ${err.message}\n`);
+            logToConsole(
+              "error",
+              `Parse error from ${clientIp}: ${err.message}`
+            );
           }
         }
       }
     } catch (err) {
-      console.error("Socket data error:", err);
-      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Socket error: ${err.message}\n`);
+      logToConsole(
+        "error",
+        `Data handling error from ${clientIp}: ${err.message}`
+      );
     }
   });
 
   socket.on("end", () => {
-    console.log(`[Disconnected] ${clientIp}`);
-    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Client disconnected: ${clientIp}\n`);
+    const connectionDuration =
+      (new Date() - clientStates.get(clientIp).connectionTime) / 1000;
+    logToConsole(
+      "disconnect",
+      `Client ${clientIp} disconnected after ${connectionDuration.toFixed(
+        1
+      )} seconds`
+    );
+    clientStates.delete(clientIp);
   });
 });
 
 // HTTP API
-app.get("/", async (req, res) => {
+app.get("/", (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("vehicle_tracking")
-      .select('*')
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (error) throw error;
-
-    res.json({
-      status: "ok",
-      count: data.length,
-      data: data,
-    });
+    const logs = fs.readFileSync(LOG_FILE, "utf8");
+    res.type("text/plain").send(logs);
   } catch (err) {
-    console.error("API error:", err);
-    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] API error: ${err.message}\n`);
+    logToConsole("error", `API error: ${err.message}`);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // Start servers
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`TCP server running on port ${PORT}`);
-  console.log("Allowed IPs:", ALLOWED_IPS);
-  fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Server started on port ${PORT}\n`);
+  logToConsole("info", `TCP server started on port ${PORT}`);
+  logToConsole("info", `Allowed IPs: ${ALLOWED_IPS.join(", ")}`);
 });
 
 app.listen(3000, () => {
-  console.log("HTTP server running on port 3000");
-  fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] HTTP server started on port 3000\n`);
+  logToConsole("info", "HTTP server started on port 3000");
 });
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-  console.log("\nShutting down servers...");
-  fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] Server shutting down\n`);
+  logToConsole("info", "\nShutting down servers...");
   server.close(() => process.exit(0));
 });
