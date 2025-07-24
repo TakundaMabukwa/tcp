@@ -1,8 +1,14 @@
-const net = require("net");
-const fs = require("fs");
-const ip = require("ip");
-require("dotenv").config();
-const express = require("express");
+import net from "net";
+import fs from "fs";
+import ip from "ip";
+import express from "express";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import chalk from "chalk";
+
+// ES Modules equivalent for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Configuration
 const PORT = process.env.PORT || 9000;
@@ -13,25 +19,26 @@ const ALLOWED_IPS = [
   process.env.ALLOWED_IP2 || "212.150.50.68",
   "127.0.0.1",
   "64.227.138.235",
+  "10.2.1.148"
 ];
 
-// Logging functions
-function logData(message, data) {
+// Logging functions with chalk colors
+const logData = (message, data) => {
   const timestamp = new Date().toISOString();
   const logEntry = `[${timestamp}] ${message} ${JSON.stringify(data)}\n`;
   fs.appendFileSync(LOG_FILE, logEntry);
-  console.log(logEntry.trim());
-}
+  console.log(chalk.green(logEntry.trim()));
+};
 
-function logError(error) {
+const logError = (error) => {
   const timestamp = new Date().toISOString();
   const logEntry = `[${timestamp}] ERROR: ${error}\n`;
   fs.appendFileSync(LOG_FILE, logEntry);
-  console.error(logEntry.trim());
-}
+  console.error(chalk.red(logEntry.trim()));
+};
 
 // Message parser
-function parseMessage(raw) {
+const parseMessage = (raw) => {
   const parts = raw.split("|").map((p) => p.trim());
   return {
     plate: parts[0],
@@ -40,10 +47,10 @@ function parseMessage(raw) {
     longitude: parseFloat(parts[3]),
     timestamp: new Date().toISOString(),
   };
-}
+};
 
 // TCP Server
-function createTCPServer() {
+const createTCPServer = () => {
   const server = net.createServer((socket) => {
     const clientIp = socket.remoteAddress.replace(/^.*:/, "");
 
@@ -88,10 +95,10 @@ function createTCPServer() {
   });
 
   return server;
-}
+};
 
 // HTTP Server
-function createHTTPServer() {
+const createHTTPServer = () => {
   const app = express();
 
   app.get("/logs", (req, res) => {
@@ -104,28 +111,28 @@ function createHTTPServer() {
   });
 
   return app;
-}
+};
 
 // Start servers
-function startServers() {
+const startServers = () => {
   const tcpServer = createTCPServer();
   const httpServer = createHTTPServer();
 
   tcpServer.listen(PORT, () => {
-    console.log(`TCP server listening on port ${PORT}`);
+    console.log(chalk.blue(`TCP server listening on port ${PORT}`));
   });
 
   httpServer.listen(HTTP_PORT, () => {
-    console.log(`HTTP server listening on port ${HTTP_PORT}`);
+    console.log(chalk.blue(`HTTP server listening on port ${HTTP_PORT}`));
   });
 
   process.on("SIGINT", () => {
     tcpServer.close(() => {
-      console.log("TCP server stopped");
+      console.log(chalk.yellow("TCP server stopped"));
       process.exit(0);
     });
   });
-}
+};
 
 // Initialize
 startServers();
