@@ -10,15 +10,16 @@ const LOG_FILE = "raw_data.log"; // Changed log file name
 const ALLOWED_IPS = [
   process.env.ALLOWED_IP1 || "81.218.55.66",
   process.env.ALLOWED_IP2 || "212.150.50.68",
-  process.env.ALLOWED_IP3 || "10.2.1.148",
-  "127.0.0.1",
+  process.env.ALLOWED_IP || "10.2.1.148",
+  process.env.ALLOWED_IP_RENDI,
+  // "127.0.0.1",
   "143.198.204.127",
   "192.168.1.165",
   "64.227.138.235",
   "41.157.41.148",
   "10.2.1.0/24",
   "198.54.173.198",
-  "41.193.55.121",
+  // "41.193.55.121",
 ];
 const DO_NETWORKS = [
   "10.244.0.0/16",
@@ -45,7 +46,7 @@ function logToConsole(type, message) {
         `From Brian - [${timestamp}] ${type.toUpperCase()}: ${message}`
       );
     default:
-      console.log(`[${timestamp}] ${type.toUpperCase()}: ${message}`);
+      console.log(` Default - [${timestamp}] ${type.toUpperCase()}: ${message}`);
   }
 }
 
