@@ -18,7 +18,7 @@ const ALLOWED_IPS = [
   "41.157.41.148",
   "10.2.1.0/24",
   "198.54.173.198",
-  "41.193.55.121"
+  "41.193.55.121",
 ];
 const DO_NETWORKS = [
   "10.244.0.0/16",
@@ -34,7 +34,19 @@ const app = express();
 // Simplified logger (no parsing)
 function logToConsole(type, message) {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${type.toUpperCase()}: ${message}`);
+  switch (type) {
+    case "41.193.55.121":
+      // Handle specific logging for this IP
+      console.log(
+        `From Rendi - [${timestamp}] ${type.toUpperCase()}: ${message}`
+      );
+    case "41.157.41.148":
+      console.log(
+        `From Brian - [${timestamp}] ${type.toUpperCase()}: ${message}`
+      );
+    default:
+      console.log(`[${timestamp}] ${type.toUpperCase()}: ${message}`);
+  }
 }
 
 // Connection handler
