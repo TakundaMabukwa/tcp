@@ -193,12 +193,13 @@ server.listen(PORT, "0.0.0.0", () => {
   logToConsole("info", `Allowed IPs: ${ALLOWED_IPS.join(", ")}`);
 });
 
-// app.listen(3000, () => {
-//   logToConsole("info", "HTTP server started on port 3000");
-// });
+
 
 httpServer.listen(8000, () => {
-  console.log('🌐 Web dashboard + API on http://localhost:8000')
+  console.log('🌐 Web dashboard + API on http://localhost:8000');
+  app.listen(3000, () => {
+  logToConsole("info", "HTTP server started on port 3000");
+});
 })
 
 // Graceful shutdown
