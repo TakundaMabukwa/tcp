@@ -1,3 +1,5 @@
+
+
 const net = require("net");
 const fs = require("fs");
 const ip = require("ip");
@@ -132,60 +134,60 @@ server.on("connection", (socket) => {
 
   let buffer = "";
 
-  socket.on("data", (data) => {
-    try {
-      buffer += data.toString("utf8");
+  // socket.on("data", (data) => {
+  //   try {
+  //     buffer += data.toString("utf8");
 
-      // Log ALL raw data as-is
-      fs.appendFileSync(
-        LOG_FILE,
-        `[${new Date().toISOString()}] [${clientIp}] RAW DATA: ${data.toString(
-          "utf8"
-        )}\n`
-      );
+  //     // Log ALL raw data as-is
+  //     fs.appendFileSync(
+  //       LOG_FILE,
+  //       `[${new Date().toISOString()}] [${clientIp}] RAW DATA: ${data.toString(
+  //         "utf8"
+  //       )}\n`
+  //     );
 
-      logToConsole(
-        "data",
-        `Raw data from ${clientIp}: ${data.toString("utf8")}`
-      );
+  //     logToConsole(
+  //       "data",
+  //       Raw data from ${clientIp}: ${data.toString("utf8")}
+  //     );
 
-      // Optional: Keep message boundary detection if needed
-      while (buffer.includes("^")) {
-        const startIdx = buffer.indexOf("^");
-        const endIdx = buffer.indexOf("^", startIdx + 1);
+  //     // Optional: Keep message boundary detection if needed
+  //     while (buffer.includes("^")) {
+  //       const startIdx = buffer.indexOf("^");
+  //       const endIdx = buffer.indexOf("^", startIdx + 1);
 
-        if (endIdx === -1) break;
+  //       if (endIdx === -1) break;
 
-        const message = buffer.substring(startIdx + 1, endIdx);
-        buffer = buffer.substring(endIdx + 1);
+  //       const message = buffer.substring(startIdx + 1, endIdx);
+  //       buffer = buffer.substring(endIdx + 1);
 
-        if (message.trim()) {
-          fs.appendFileSync(
-            LOG_FILE,
-            `[${new Date().toISOString()}] [${clientIp}] COMPLETE MESSAGE: ${message}\n`
-          );
-        }
-      }
-    } catch (err) {
-      logToConsole("error", `Data logging error: ${err.message}`);
-    }
-  });
+  //       if (message.trim()) {
+  //         fs.appendFileSync(
+  //           LOG_FILE,
+  //           [${new Date().toISOString()}] [${clientIp}] COMPLETE MESSAGE: ${message}\n
+  //         );
+  //       }
+  //     }
+  //   } catch (err) {
+  //     logToConsole("error", Data logging error: ${err.message});
+  //   }
+  // });
 
   socket.on("end", () => {
     logToConsole("connection", `Client disconnected: ${clientIp}`);
   });
 });
 
-// HTTP API to view raw logs
-app.get("/", (req, res) => {
-  try {
-    const logs = fs.readFileSync(LOG_FILE, "utf8");
-    res.type("text/plain").send(logs);
-  } catch (err) {
-    logToConsole("error", `API error: ${err.message}`);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+// // HTTP API to view raw logs
+// app.get("/", (req, res) => {
+//   try {
+//     const logs = fs.readFileSync(LOG_FILE, "utf8");
+//     res.type("text/plain").send(logs);
+//   } catch (err) {
+//     logToConsole("error", API error: ${err.message});
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
 
 // Start servers
 server.listen(PORT, "0.0.0.0", () => {
